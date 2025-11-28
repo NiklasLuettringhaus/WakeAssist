@@ -83,11 +83,11 @@ Why?
 - **Passive buzzers:** Require PWM signal to generate tone. Full control over frequency (tone) and duty cycle (volume).
 - **Recommendation:** Use active buzzers for MVP (simpler, more reliable). PWM can create pulsing patterns (on/off rhythms) even if not controlling tone.
 
-**Circuit per buzzer:**
+**Circuit per buzzer (CORRECTED - see Section 2.3 for details):**
 ```
-ESP32 GPIO ──→ [100Ω] ──→ MOSFET Gate
+ESP32 GPIO ──→ [470Ω] ──→ MOSFET Gate (IRLZ44N)
                            │
-                      [100kΩ] to GND
+                      [10kΩ] to GND (pulldown)
 
 12V ──→ Buzzer+ ──→ Buzzer- ──→ MOSFET Drain
                                     │
@@ -95,6 +95,8 @@ ESP32 GPIO ──→ [100Ω] ──→ MOSFET Gate
                                     │
                                    GND
 ```
+
+**⚠️ IMPORTANT:** See Section 2.3 below for critical corrections and beginner-friendly design!
 
 ### Hardware Verification System
 
@@ -128,6 +130,382 @@ ESP32 GPIO ──→ [100Ω] ──→ MOSFET Gate
 - Current sensors (INA219) for automatic hardware validation
 - MicroSD card for custom alarm sounds
 - 12V LED strobe for visual alarm
+
+---
+
+## 2.3 Beginner-Friendly Design Review & Corrections
+
+**⚠️ CRITICAL: This section corrects issues in the original design and provides beginner-appropriate alternatives.**
+
+### Critical Issues Found & Fixed
+
+#### Issue #1: Incorrect Resistor Values ❌ → ✅
+
+**Original plan:** 100Ω gate resistor + 100kΩ pulldown
+**Problem:** Can create voltage divider issues, 100kΩ is too weak for reliable pulldown
+
+**CORRECTED VALUES:**
+- **Gate resistor:** 470Ω (protects ESP32 GPIO from inrush current)
+- **Pulldown resistor:** 10kΩ (strong enough for reliable LOW state)
+
+**Why these values:**
+- 470Ω limits current but doesn't reduce gate voltage significantly
+- 10kΩ is standard for MOSFET pulldown (strong enough to prevent floating gate)
+- Both are common resistor values (easy to find)
+
+**Source:** [MOSFET Gate Resistor Tutorial](https://www.build-electronic-circuits.com/mosfet-gate-resistor/)
+
+#### Issue #2: ESP32 Power Consumption Underestimated ⚠️
+
+**Original estimate:** 150-250mA
+**Actual specification:** 160-260mA normal, **up to 500-800mA during WiFi bursts!**
+
+**Impact:** Buck converter must handle peak loads
+**Solution:** Use quality LM2596 module rated for 2-3A (not 1A)
+
+**Source:** [Random Nerd Tutorials - ESP32 Power](https://randomnerdtutorials.com/getting-started-with-esp32/)
+
+#### Issue #3: Buck Converter on Breadboard is Problematic ⚠️
+
+**Problem:** Switching regulators (like LM2596) are not suitable for breadboard prototyping due to:
+- High-frequency switching noise
+- Breadboard inductance/capacitance causes instability
+- Can produce voltage spikes that damage ESP32
+
+**SOLUTION:** Use **pre-built LM2596 buck converter MODULE** (not discrete components)
+
+**What to buy:**
+- Search: "LM2596 DC-DC step down module"
+- Cost: ~$5 for 5-pack on Amazon
+- Comes with all necessary capacitors pre-soldered
+- Adjustable output via potentiometer
+
+**Source:** [When to Avoid Breadboards](https://electronics.stackexchange.com/questions/2103/when-to-avoid-using-a-breadboard)
+
+#### Issue #4: MOSFET Choice for Beginners
+
+**Original plan:** AO3400 or IRLZ44N
+
+**For beginners, use IRLZ44N ONLY:**
+- **AO3400:** SOT-23 package (tiny, hard to solder/breadboard) ❌
+- **IRLZ44N:** TO-220 package (big, easy to handle, breadboard-friendly) ✅
+
+**IRLZ44N Specifications:**
+- Logic-level N-channel MOSFET
+- Fully turns on with 5V gate voltage
+- Can handle up to 47A (way more than needed for 100mA buzzers)
+- Easy to find at local electronics stores
+
+**Source:** [IRLZ44N Datasheet & Guide](https://www.ariat-tech.com/blog/Your-Guide-to-IRLZ44N-Power-MOSFET.html)
+
+#### Issue #5: Over-Complicated Protection (For Beginners)
+
+**Original plan includes:**
+- TVS diode (SMBJ12A)
+- Schottky reverse polarity diode
+- Multiple polyfuses
+
+**For your FIRST electronics project:** This is too complex!
+
+**Beginner-Friendly Protection Strategy:**
+- Use **quality UL-listed 12V wall adapter** (built-in protection)
+- Use **keyed barrel jack** (physically prevents reverse polarity)
+- **Skip TVS diode and polyfuses in MVP**
+- Add protection in V2 when making PCB
+
+**Why:** Fewer components = fewer mistakes = faster learning
+
+---
+
+### Simplified Beginner-Friendly Architecture
+
+```
+Wall Adapter (12V 2A, UL-listed)
+        ↓
+  [Barrel Jack]
+        ↓
+   [Optional: 2A Polyfuse for basic safety]
+        ↓
+12V Rail ────────────────┬─────────→ Buzzers (via MOSFETs)
+        ↓                │
+ [LM2596 Buck Module]    │
+   (pre-built, 5V out)   │
+        ↓                │
+   5V Rail ──────────────┴─────────→ ESP32 VIN pin
+```
+
+**Key Simplifications:**
+1. Pre-built buck module (not discrete design)
+2. No TVS diode (use quality power supply instead)
+3. No reverse polarity diode (use keyed connector)
+4. Optional polyfuse for basic overcurrent protection
+
+---
+
+### Corrected Circuit Diagrams
+
+#### Power System (Simplified)
+```
+12V Wall Adapter (2A minimum)
+    ↓
+[Barrel Jack] ← Use keyed/center-positive
+    ↓
+12V Rail
+    ├──→ [LM2596 Buck Module] ──→ 5V Rail ──→ ESP32
+    └──→ Buzzer circuits (via MOSFETs)
+
+Capacitors:
+- 470µF electrolytic at buck module output
+- 100nF ceramic at ESP32 VIN pin
+```
+
+#### Per Buzzer Circuit (Corrected)
+```
+ESP32 GPIO Pin (e.g., GPIO 25)
+    ↓
+[470Ω Resistor] ────┬──→ MOSFET Gate (IRLZ44N pin 1)
+                    │
+               [10kΩ Resistor]
+                    ↓
+                   GND
+
+Buzzer Power:
+12V ──→ Buzzer+ ──→ Buzzer- ──→ MOSFET Drain (pin 2)
+                                     │
+                                 MOSFET Source (pin 3)
+                                     │
+                                    GND
+
+MOSFET Pinout (TO-220 package, facing you):
+[1: Gate] [2: Drain] [3: Source]
+```
+
+#### LED Circuit (Per LED)
+```
+ESP32 GPIO Pin (e.g., GPIO 16)
+    ↓
+[220Ω Resistor] ──→ LED Anode (+) ──→ LED Cathode (-) ──→ GND
+
+LED Identification:
+- Longer leg = Anode (+)
+- Shorter leg = Cathode (-)
+- Flat side of LED = Cathode
+```
+
+---
+
+### Critical Safety Warnings for Beginners
+
+**⚠️ READ BEFORE BUILDING:**
+
+1. **Electrolytic Capacitor Polarity**
+   - White stripe = NEGATIVE side
+   - Installing backwards = **EXPLOSION** 💥
+   - Always check TWICE before powering on
+
+2. **Current Limits on Breadboard**
+   - Most breadboards: Max **1A per rail**
+   - Your circuit: ~500mA typical → **Safe** ✅
+   - Never exceed breadboard ratings
+
+3. **Power-On Safety**
+   - **Wear safety glasses** when powering up
+   - Disconnect power before changing wiring
+   - Check all connections TWICE
+   - Use multimeter to verify voltages
+
+4. **ESP32 Pin Limitations**
+   - **NEVER connect to GPIO 6-11** (flash pins, will brick ESP32)
+   - **GPIO 34-39 are INPUT ONLY** (can't drive LEDs/buzzers)
+   - Use 3.3V-safe pins only (ESP32 is 3.3V logic, though 5V tolerant on some pins)
+
+5. **Wiring Colors (Standard)**
+   - **Red = Positive (+)**
+   - **Black = Ground (GND)**
+   - Following this prevents mistakes
+
+**Sources:**
+- [Breadboarding Safety Guide](https://breadboardcircuits.com/welcome-to-breadboardcircuits-com/)
+- [ESP32 Pinout Reference](https://lastminuteengineers.com/esp32-pinout-reference/)
+
+---
+
+### Recommended ESP32 GPIO Pin Assignments
+
+Based on [ESP32 pinout specifications](https://lastminuteengineers.com/esp32-pinout-reference/):
+
+| Function | GPIO Pin | Why |
+|----------|----------|-----|
+| Small Buzzer | **GPIO 25** | PWM capable, safe to use |
+| Large Buzzer | **GPIO 26** | PWM capable, safe to use |
+| WiFi LED (Blue/Red) | **GPIO 16** | General purpose, reliable |
+| Alarm LED (Yellow/Orange/Red) | **GPIO 17** | General purpose, reliable |
+| Status LED (Green/Red) | **GPIO 18** | General purpose, reliable |
+| Test Button | **GPIO 21** | Has internal pullup |
+| Silence Button | **GPIO 22** | Has internal pullup |
+| Reset Button | **GPIO 23** | Has internal pullup |
+
+**Pins to AVOID:**
+- ❌ GPIO 6-11: Connected to flash, will brick ESP32
+- ❌ GPIO 34-39: Input-only, can't drive outputs
+- ❌ GPIO 0, 2, 15: Strapping pins (can cause boot issues)
+
+---
+
+### Step-by-Step Build Phases (Beginner Approach)
+
+**DO NOT BUILD EVERYTHING AT ONCE!** Test components individually.
+
+#### Phase 0: Preparation (Day 1)
+- [ ] Order all components (see revised list in Section 7)
+- [ ] Watch beginner tutorials (links in Section 11)
+- [ ] Set up Arduino IDE with ESP32 support
+- [ ] Test ESP32 with USB power (upload Blink example)
+- [ ] Get multimeter and learn to use it
+
+#### Phase 1: Power System (Day 2-3)
+- [ ] Connect LM2596 buck module to 12V power supply
+- [ ] Use multimeter to check 12V input
+- [ ] Adjust buck module output to exactly **5.0V** using screwdriver
+- [ ] Add 470µF capacitor to output (watch polarity!)
+- [ ] Test buck module stability (leave running 10 minutes, check voltage)
+- [ ] Take photo of working power system
+
+#### Phase 2: ESP32 Power (Day 4)
+- [ ] Disconnect buck module from power
+- [ ] Connect buck module 5V output to ESP32 VIN pin
+- [ ] Add 100nF ceramic capacitor near ESP32 VIN
+- [ ] Connect GND from buck module to ESP32 GND
+- [ ] Power on and check ESP32 boots (blue LED should light up)
+- [ ] Measure voltage at VIN pin with multimeter (should be 5V)
+- [ ] If ESP32 doesn't boot: STOP, troubleshoot
+
+#### Phase 3: First Buzzer Circuit (Day 5-7)
+- [ ] Disconnect power
+- [ ] Build ONE buzzer circuit on breadboard:
+  - IRLZ44N MOSFET in breadboard
+  - 470Ω resistor from GPIO 25 to gate
+  - 10kΩ resistor from gate to GND
+  - 12V to buzzer+
+  - Buzzer- to MOSFET drain
+  - MOSFET source to GND
+- [ ] Double-check all connections
+- [ ] Write simple test code:
+  ```cpp
+  void setup() {
+    pinMode(25, OUTPUT);
+  }
+  void loop() {
+    digitalWrite(25, HIGH);
+    delay(1000);
+    digitalWrite(25, LOW);
+    delay(1000);
+  }
+  ```
+- [ ] Power on and test
+- [ ] Buzzer should beep once per second
+- [ ] If no sound: troubleshoot (see Section 11)
+- [ ] Take photo of working circuit
+
+#### Phase 4: Second Buzzer (Day 8-9)
+- [ ] Duplicate first buzzer circuit for second buzzer
+- [ ] Use GPIO 26 for second buzzer
+- [ ] Test both buzzers independently
+- [ ] Test both buzzers together
+
+#### Phase 5: LEDs and Buttons (Day 10-11)
+- [ ] Add 3 LEDs with 220Ω resistors
+- [ ] Test each LED individually
+- [ ] Add 3 push buttons
+- [ ] Test button inputs with simple code
+
+#### Phase 6: Integration Test (Day 12-14)
+- [ ] Write test code that uses all hardware
+- [ ] Test alarm escalation sequence (small → large buzzer)
+- [ ] Test LED patterns
+- [ ] Test buttons
+- [ ] Run full hardware test for 30 minutes
+- [ ] Fix any issues found
+
+#### Phase 7: Software Development (Week 3-4)
+**Only start software AFTER hardware is fully tested!**
+- [ ] WiFi connection test
+- [ ] Telegram bot integration
+- [ ] Alarm state machine
+- [ ] Status reporting
+- [ ] Full system integration
+
+---
+
+### Common Beginner Mistakes & Solutions
+
+| Mistake | Symptom | Solution |
+|---------|---------|----------|
+| **MOSFET in backwards** | Buzzer doesn't work or always on | Check pinout: Gate-Drain-Source (looking at flat side) |
+| **Capacitor polarity reversed** | Pop! smoke, dead cap | White stripe = negative. Replace capacitor. |
+| **Forgot pulldown resistor** | Buzzer randomly triggers | Add 10kΩ from gate to GND |
+| **Wrong GPIO pin** | ESP32 won't boot or code doesn't work | Use GPIO 25, 26, avoid 6-11 |
+| **Loose wires** | Intermittent operation | Push all wires firmly into breadboard |
+| **Wrong voltage** | ESP32 won't boot or buzzer quiet | Check with multimeter: 5V at ESP32, 12V at buzzers |
+| **Buck module not adjusted** | Wrong voltage output | Use screwdriver to adjust potentiometer while measuring with multimeter |
+
+**Troubleshooting Steps:**
+1. **Disconnect power FIRST**
+2. Check all connections with circuit diagram
+3. Verify voltages with multimeter
+4. Check component orientation (LEDs, capacitors, MOSFETs)
+5. Test components individually
+6. Ask for help with clear photos
+
+---
+
+### Alternative Beginner-Friendly Options
+
+If the above is still too complex, consider these alternatives:
+
+#### Option A: Use Pre-Built Relay Modules
+Instead of MOSFETs, use 2-channel relay module (~$5 on Amazon)
+
+**Pros:**
+- Ultra simple: Just connect GPIO + power
+- No resistor calculations
+- No MOSFET wiring
+
+**Cons:**
+- Slight click sound when switching
+- Slower than MOSFET
+- Physically larger
+
+**When to use:** If this is your FIRST EVER electronics project
+
+#### Option B: 5V Buzzers (Eliminate Buck Converter)
+Use 5V active buzzers instead of 12V
+
+**Pros:**
+- No buck converter needed (simpler power system)
+- ESP32 USB power can run everything
+- Fewer components
+
+**Cons:**
+- 5V buzzers are quieter (~70-80 dB vs 95 dB)
+- May not be loud enough
+
+**When to use:** If you want simplest possible build
+
+#### Option C: Development Breakout Boards
+Use pre-made ESP32 + relay/MOSFET shields
+
+**Pros:**
+- Plug-and-play, no wiring
+- Professional quality
+- Faster to build
+
+**Cons:**
+- More expensive (~$20-30)
+- Less educational
+- Less customizable
+
+**When to use:** If you want to focus on software, not hardware
 
 ---
 
@@ -450,47 +828,196 @@ bool checkHardware() {
 
 ---
 
-## 7. Component List (MVP)
+## 7. Component List (MVP - Beginner-Friendly)
 
-### Power
-- **12V DC PSU** (≥2A, wall adapter)
-- **Buck converter** 12V → 5V (1-2A, e.g., LM2596 module)
-- **TVS diode** SMBJ12A (12V transient protection)
-- **Polyfuse** 1-2A on 5V, 2-3A on 12V
-- **Schottky diode** 1N5822 (reverse polarity protection)
+**⚠️ NOTE:** This is the REVISED beginner-friendly list based on Section 2.3 corrections.
 
-### Control
-- **ESP32 dev board** (WiFi capable, 30+ GPIO)
-- **2× MOSFETs** (AO3400 or IRLZ44N, logic-level)
-- **2× 100Ω resistors** (gate resistors)
-- **2× 100kΩ resistors** (pulldown resistors)
+### Essential Components (Must-Have for MVP)
 
-### Alarm (Buzzers Only)
-- **Small 12V active buzzer** (~80 dB, e.g., TMB12A05, ~10-30mA)
-- **Large 12V active buzzer** (~95+ dB, e.g., SFM-27, ~30-100mA)
+| Qty | Component | Specifications | Approx Cost | Where to Buy | Notes |
+|-----|-----------|---------------|-------------|--------------|-------|
+| 1 | **ESP32 DevKit V1** | 30-pin, with USB cable | ~$10 | Amazon, AliExpress | Most common variant, lots of tutorials |
+| 1 | **12V Power Supply** | 2A minimum, center-positive barrel jack, UL-listed | ~$8 | Amazon | Search "12V 2A wall adapter" |
+| 1 | **LM2596 Buck Module** | Pre-built, adjustable, 3A rated | ~$1-2 ea | Amazon (buy 5-pack ~$5) | **Must be pre-built module, NOT bare chip!** |
+| 2 | **IRLZ44N MOSFETs** | TO-220 package, logic-level, N-channel | ~$1 ea | Local electronics, Amazon | Easier to handle than tiny AO3400 |
+| 2 | **12V Active Buzzers** | 1× small (~80dB), 1× large (~95dB), wire leads | ~$2-5 ea | Amazon, AliExpress | Search "12V active buzzer" |
+| 1 | **Breadboard** | 830 tie-points, full-size | ~$5 | Amazon | Get quality breadboard for reliability |
+| 1 | **Jumper Wire Kit** | Male-to-male, various lengths | ~$5 | Amazon | Multicolor pack (20-30 wires) |
+| 1 | **Resistor Kit** | Assorted 1/4W resistors | ~$10 | Amazon | Get 300-500pc kit, covers all needs |
+| 1 | **Capacitor Kit** | Assorted electrolytics & ceramics | ~$10 | Amazon | Get mixed kit with 100nF and 470µF |
+| 3 | **LEDs** | 5mm, any colors (blue, yellow/orange, green) | ~$0.20 ea | Amazon LED kit | Buy assorted kit |
+| 3 | **Push Buttons** | Breadboard-friendly, momentary | ~$0.30 ea | Amazon button kit | 12mm tactile buttons |
 
-**Buzzer Selection Notes:**
-- **Active buzzers** recommended (built-in oscillator, just apply 12V)
-- **Alternative:** Passive buzzers (require PWM, more control but more complex)
-- Look for "continuous tone" or "active" in specifications
-- Verify current draw <100mA for safety
+**Subtotal:** ~$40-50 (excluding kits you may already have)
+
+---
+
+### Specific Resistors Needed
+
+| Qty | Value | Purpose | From Kit |
+|-----|-------|---------|----------|
+| 2 | **470Ω** | MOSFET gate resistors | ✓ Resistor kit |
+| 2 | **10kΩ** | MOSFET pulldown resistors | ✓ Resistor kit |
+| 3 | **220Ω** | LED current-limiting resistors | ✓ Resistor kit |
+
+---
+
+### Specific Capacitors Needed
+
+| Qty | Value | Type | Purpose | From Kit |
+|-----|-------|------|---------|----------|
+| 2 | **470µF 16V+** | Electrolytic | Buck module output, general filtering | ✓ Capacitor kit |
+| 5 | **100nF (0.1µF)** | Ceramic | Decoupling near ICs | ✓ Capacitor kit |
+
+**⚠️ Polarity Warning:** Electrolytic caps have polarity! White stripe = negative side.
+
+---
+
+### Tools & Safety Equipment (Recommended)
+
+| Item | Purpose | Cost | Priority |
+|------|---------|------|----------|
+| **Multimeter** | Measure voltages, debug issues | ~$15 | **ESSENTIAL** |
+| **Safety Glasses** | Protect eyes when powering circuits | ~$5 | **ESSENTIAL** |
+| **Tweezers** | Place small components | ~$3 | Very Helpful |
+| **Wire Strippers** | If using solid core wire | ~$10 | Helpful |
+| **Barrel Jack Breakout** | Easier breadboard connection | ~$2 | Optional but nice |
+| **USB Cable** | For ESP32 programming (may be included) | ~$3 | Essential if not included |
+
+---
+
+### Optional Components (Can Add Later)
+
+| Component | Purpose | Cost | When to Add |
+|-----------|---------|------|-------------|
+| **Polyfuse 2A** | Overcurrent protection | ~$1 | V2 for safety |
+| **2-Channel Relay Module** | Alternative to MOSFETs (simpler) | ~$5 | If MOSFETs too hard |
+| **Current Sensors (2× INA219)** | Automatic hardware verification | ~$10 | V2 for automation |
+| **TVS Diode SMBJ12A** | Transient voltage protection | ~$2 | V2 when making PCB |
+| **Schottky 1N5822** | Reverse polarity protection | ~$1 | V2 when making PCB |
+
+---
+
+### Shopping Lists by Store
+
+#### Amazon Shopping List (One-Stop)
+```
+[ ] ESP32 DevKit V1 with USB cable
+[ ] 12V 2A power adapter (center-positive)
+[ ] LM2596 buck converter module (5-pack)
+[ ] IRLZ44N MOSFET (pack of 5-10)
+[ ] 12V active buzzers (assorted pack or individual)
+[ ] Breadboard 830 tie-points
+[ ] Jumper wire kit (male-to-male)
+[ ] Resistor kit (300-500 pieces)
+[ ] Capacitor kit (electrolytic & ceramic assortment)
+[ ] LED assortment kit (5mm)
+[ ] Push button kit (tactile switches)
+[ ] Multimeter (basic digital)
+[ ] Safety glasses
+```
+
+**Estimated Total:** $60-80 (gets you started + spare parts)
+
+#### Local Electronics Store (Immediate Needs)
+```
+[ ] ESP32 DevKit V1 (if available)
+[ ] IRLZ44N MOSFETs (2 pieces minimum)
+[ ] 470Ω resistors (×4)
+[ ] 10kΩ resistors (×4)
+[ ] 220Ω resistors (×6)
+[ ] 470µF electrolytic caps (×3)
+[ ] 100nF ceramic caps (×10)
+[ ] LEDs (×6 assorted)
+[ ] Breadboard
+[ ] Jumper wires
+```
+
+**Estimated Total:** $20-30 (basics to start immediately)
+
+---
+
+### Buzzer Selection Guide
+
+**Small Buzzer (WARNING/ALERT stages):**
+- **Voltage:** 12V DC
+- **Type:** Active (built-in oscillator)
+- **Sound level:** ~80-85 dB
+- **Current:** 10-30mA
+- **Example models:** TMB12A05, YXD-12085
+- **Where:** Amazon, AliExpress
+- **Search term:** "12V active buzzer 80dB"
+
+**Large Buzzer (EMERGENCY stage):**
+- **Voltage:** 12V DC
+- **Type:** Active (built-in oscillator)
+- **Sound level:** ~95-105 dB
+- **Current:** 30-100mA
+- **Example models:** SFM-27, SC0742
+- **Where:** Amazon, AliExpress, local alarm suppliers
+- **Search term:** "12V piezo buzzer 95dB" or "12V alarm siren"
+
+**How to identify active vs passive:**
+- **Active:** Has oscillator circuit visible (black blob on back)
+- **Active:** Produces sound with just DC voltage
+- **Passive:** Looks like plain disk, needs PWM signal
+- **When in doubt:** Product should say "active" or "self-drive"
+
+**Testing before purchase (if possible):**
+- Connect 12V battery or power supply
+- Active buzzer = immediate continuous sound
+- Passive buzzer = no sound or click only
+
+---
+
+### What NOT to Buy (Common Beginner Mistakes)
+
+❌ **AO3400 MOSFET** - Too small (SOT-23 package), hard to work with
+❌ **Bare LM2596 chip** - Needs PCB design, not breadboard-friendly
+❌ **Passive buzzers** (for MVP) - Need PWM programming, more complex
+❌ **3.3V buzzers** - Too quiet for alarm
+❌ **5V power supply** - Need 12V for buzzers
+❌ **Solderless breadboard under 830 points** - Too small
+❌ **Generic "ESP32"** without USB - Need DevKit with USB for programming
+
+---
 
 ### Future Enhancements (Post-MVP)
-- **Speaker system:** MAX98357A I²S amp + 8Ω speaker
-- **Microphone:** INMP441 digital mic for sound verification
-- **Current sensors:** 2× INA219 for automatic hardware validation
-- **MicroSD module:** Custom alarm sounds
-- **12V LED strobe:** Visual alarm
 
-### Misc
-- Ceramic caps 100 nF
-- Electrolytics 100–1000 µF
-- Ferrite beads
-- Buttons
-- LEDs + resistors
-- Screw terminals
-- Heat-shrink, wiring
-- ABS enclosure
+When you're ready for V2, add these for better functionality:
+
+| Component | Purpose | Cost |
+|-----------|---------|------|
+| **MAX98357A I²S Amp** | Gentle audio for speaker | ~$5 |
+| **8Ω 3-5W Speaker** | Gentle alarm sounds | ~$3 |
+| **INMP441 Microphone** | Automatic sound verification | ~$3 |
+| **2× INA219 Current Sensors** | Hardware verification (90% reliability) | ~$10 |
+| **MicroSD Module** | Custom alarm sounds | ~$2 |
+| **12V LED Strobe** | Visual alarm | ~$5 |
+| **Custom PCB** | Permanent, reliable build | ~$20-30 |
+
+---
+
+### Budget Summary
+
+| Build Level | Cost | Time | Difficulty | When to Use |
+|-------------|------|------|------------|-------------|
+| **Bare Minimum** | ~$40 | 2-3 weeks | Medium | First electronics project |
+| **Recommended MVP** | ~$60 | 3-4 weeks | Medium | Balanced approach |
+| **With Tools** | ~$80 | 3-4 weeks | Medium | Don't have multimeter/tools |
+| **V2 with PCB** | ~$120+ | 6-8 weeks | Hard | After MVP works |
+
+---
+
+**💡 Pro Tips for Shopping:**
+
+1. **Buy Multipacks:** MOSFETs, buck modules come in packs - you'll break/test some
+2. **Get Kits:** Resistor/capacitor/LED kits cheaper than individual parts
+3. **Local Store First:** Get basics locally, order special parts online
+4. **Don't Skimp on Power Supply:** Cheap power supplies can damage ESP32
+5. **Quality Breadboard Matters:** Cheap breadboards have intermittent connections
+6. **Read Reviews:** Check Amazon reviews for "ESP32" compatibility
+7. **Buy Extras:** Get 5-10 of each component, you WILL make mistakes
 
 ---
 
@@ -558,34 +1085,33 @@ bool checkHardware() {
 - Code comments and documentation
 - Final assembly and packaging
 
-### Required Libraries
+### Required Libraries (MVP)
 ```cpp
+// Core ESP32
 #include <WiFi.h>              // ESP32 WiFi
-#include <WiFiManager.h>       // Captive portal
 #include <WiFiClientSecure.h>  // HTTPS for Telegram
 #include <WebServer.h>         // Setup web page
-#include <Preferences.h>       // Persistent storage
-#include <ArduinoJson.h>       // JSON parsing
-#include <driver/i2s.h>        // Audio output
-#include <SPIFFS.h>            // File system
-#include <Ticker.h>            // Timers
+#include <Preferences.h>       // Persistent storage (credentials)
+
+// External Libraries (install via PlatformIO/Arduino)
+#include <WiFiManager.h>       // Captive portal (tzapu/WiFiManager)
+#include <ArduinoJson.h>       // JSON parsing (bblanchon/ArduinoJson)
+
+// Note: No audio libraries needed for MVP (buzzer-only)
 ```
 
-### File Structure
+### File Structure (MVP)
 ```
 WakeAssist/
 ├── src/
-│   ├── main.cpp               # Main program & setup
+│   ├── main.cpp               # Main program, setup(), loop()
 │   ├── wifi_manager.h/cpp     # WiFi setup & management
 │   ├── telegram_bot.h/cpp     # Telegram API handler
-│   ├── alarm_controller.h/cpp # State machine & logic
-│   ├── audio_player.h/cpp     # I²S audio driver
-│   ├── hardware.h/cpp         # GPIO, buttons, LEDs, buzzer
+│   ├── alarm_controller.h/cpp # State machine & buzzer control
+│   ├── hardware.h/cpp         # GPIO, buttons, LEDs, buzzers
 │   └── config.h               # Pin definitions & constants
 ├── data/
-│   ├── setup.html             # WiFi setup web page
-│   ├── warning.wav            # Gentle alarm sound
-│   └── alert.wav              # Loud alarm sound
+│   └── setup.html             # WiFi setup web page
 ├── platformio.ini             # PlatformIO configuration
 ├── projectplan.md             # This document
 └── README.md                  # User documentation
@@ -696,11 +1222,10 @@ TROUBLESHOOTING:
 TELEGRAM COMMANDS:
 
   /start   - Connect and register
-  /wake    - Trigger alarm
+  /wake    - Trigger alarm (escalating buzzers)
   /stop    - Stop alarm
   /status  - Check device status
-  /test    - Play gentle test sound
-  /volume 5 - Set volume (1-10)
+  /test    - Test both buzzers (confirm they work)
 
 ═══════════════════════════════════════════════════
 
@@ -711,5 +1236,261 @@ Need help? Visit: [your support website/email]
 
 ---
 
-## 10. One-Sentence Summary
-A Telegram-controlled WiFi alarm device using an ESP32, digital audio amplifier, and 12V buzzer with multi-stage escalation, providing remote wake-up capability via simple messaging app with zero backend infrastructure required.
+## 10. One-Sentence Summary (MVP)
+A Telegram-controlled WiFi alarm device using an ESP32 and two 12V buzzers with three-stage escalation (pulsing → continuous → loud), providing remote wake-up capability via simple messaging app with zero backend infrastructure required.
+
+---
+
+## 11. Learning Resources & Tutorials
+
+**⚠️ READ THESE BEFORE STARTING!** These resources were used to create the beginner-friendly design in Section 2.3.
+
+### Essential Beginner Tutorials
+
+#### ESP32 Basics
+1. **[Getting Started with ESP32 - Random Nerd Tutorials](https://randomnerdtutorials.com/getting-started-with-esp32/)**
+   - Complete beginner guide to ESP32
+   - How to install Arduino IDE
+   - First programs and examples
+   - **Read this FIRST!**
+
+2. **[ESP32 Pinout Reference - Last Minute Engineers](https://lastminuteengineers.com/esp32-pinout-reference/)**
+   - Detailed pin descriptions
+   - Which pins to use and avoid
+   - Power requirements
+   - **Print this out for reference!**
+
+3. **[ESP32 Pinout Everything You Need to Know - Flux.ai](https://www.flux.ai/p/blog/esp32-pinout-everything-you-need-to-know)**
+   - Alternative pinout guide
+   - Visual diagrams
+   - Use cases for each pin
+
+#### Power & Buck Converters
+4. **[How to Use LM2596 Buck Converter - Instructables](https://www.instructables.com/How-to-Use-DC-to-DC-Buck-Converter-LM2596/)**
+   - Step-by-step tutorial
+   - How to adjust output voltage
+   - Safety tips
+   - **Follow this when setting up power!**
+
+5. **[LM2596 Buck Converter Tutorial - Soldered Electronics](https://soldered.com/learn/hum-lm2596-buck-converter/)**
+   - Quick reference guide
+   - Capacitor requirements
+   - Common mistakes
+
+#### MOSFETs & Switching
+6. **[MOSFET Gate Resistor Tutorial - Build Electronic Circuits](https://www.build-electronic-circuits.com/mosfet-gate-resistor/)**
+   - Why gate resistors are needed
+   - How to choose resistor values
+   - Pulldown resistor explanation
+   - **Critical for understanding Section 2.3!**
+
+7. **[IRLZ44N MOSFET Guide - Ariat Tech](https://www.ariat-tech.com/blog/Your-Guide-to-IRLZ44N-Power-MOSFET.html)**
+   - IRLZ44N specifications
+   - Pinout and wiring
+   - Example circuits
+
+#### Buzzers
+8. **[Active vs Passive Buzzer - Circuit Basics](https://www.circuitbasics.com/how-to-use-active-and-passive-buzzers-on-the-arduino/)**
+   - Difference between active/passive
+   - How to use each type
+   - Code examples
+   - **Read before buying buzzers!**
+
+9. **[ESP32 Piezo Buzzer Tutorial - ESP32IO](https://esp32io.com/tutorials/esp32-piezo-buzzer)**
+   - ESP32-specific buzzer tutorial
+   - PWM patterns
+   - Example code
+
+10. **[Active and Passive Buzzer Discussion - eMariete](https://emariete.com/en/buzzer-active-or-passive-buzzer-for-arduino-esp8266-nodemcu-esp32-etc/)**
+    - Detailed comparison
+    - When to use each type
+    - Troubleshooting tips
+
+#### Safety & Best Practices
+11. **[Breadboarding Safety and Best Practices - BreadBoardCircuits.com](https://breadboardcircuits.com/welcome-to-breadboardcircuits-com/)**
+    - Safety warnings
+    - Common mistakes
+    - Best practices
+    - **Read before building!**
+
+12. **[When to Avoid Using Breadboards - Stack Exchange](https://electronics.stackexchange.com/questions/2103/when-to-avoid-using-a-breadboard)**
+    - Breadboard limitations
+    - Why switching regulators need modules
+    - High-frequency issues
+
+### Protection Circuits (For V2)
+13. **[Reverse Polarity Protection Methods - EDN](https://www.edn.com/protecting-against-reverse-polarity-methods-examined-part-1/)**
+    - Various protection methods
+    - Schottky diode approach
+    - When to use each type
+
+14. **[TVS Diode and Polyfuse Circuit Protection - Stack Exchange](https://electronics.stackexchange.com/questions/289649/circuit-protection-incorporating-a-transient-voltage-supressor-and-polyfuse)**
+    - How TVS diodes work
+    - Component ordering
+    - Real-world examples
+
+### Video Tutorials (Recommended)
+
+#### YouTube Channels for Beginners:
+- **Great Scott!** - Electronics basics and projects
+- **Andreas Spiess** - ESP32 specific tutorials ("The guy with the Swiss accent")
+- **DroneBot Workshop** - Step-by-step project builds
+- **Random Nerd Tutorials** - ESP32 programming
+- **Paul McWhorter** - Arduino/ESP32 lessons for absolute beginners
+
+#### Specific Videos to Watch:
+- Search: "ESP32 getting started tutorial"
+- Search: "MOSFET switching tutorial"
+- Search: "How to use a multimeter for beginners"
+- Search: "Breadboard basics tutorial"
+
+### Books (If You Want to Learn More)
+
+1. **"Make: Electronics" by Charles Platt**
+   - Hands-on beginner guide
+   - Learn by doing experiments
+   - Covers all basics
+
+2. **"Getting Started with ESP32" by Kolban**
+   - Free eBook
+   - Comprehensive ESP32 reference
+   - Advanced topics covered
+
+3. **"The Art of Electronics" by Horowitz & Hill**
+   - Industry standard reference
+   - More advanced but thorough
+   - Keep for future learning
+
+### Forums & Communities (Get Help Here!)
+
+1. **Arduino Forum - ESP32 Section**
+   - [https://forum.arduino.cc/](https://forum.arduino.cc/)
+   - Active community
+   - Post photos of your circuit for help
+
+2. **Electrical Engineering Stack Exchange**
+   - [https://electronics.stackexchange.com/](https://electronics.stackexchange.com/)
+   - Expert answers
+   - Search before posting
+
+3. **ESP32 Forum**
+   - [https://www.esp32.com/](https://www.esp32.com/)
+   - Official ESP32 community
+   - Advanced troubleshooting
+
+4. **Reddit Communities:**
+   - r/arduino
+   - r/esp32
+   - r/AskElectronics (for circuit questions)
+   - r/ElectronicsCircuit
+
+### Tools & Software
+
+1. **Arduino IDE** - For programming ESP32
+   - Download: [https://www.arduino.cc/en/software](https://www.arduino.cc/en/software)
+   - Free and open source
+
+2. **ESP32 Board Support**
+   - Add to Arduino IDE: https://dl.espressif.com/dl/package_esp32_index.json
+   - Follow Random Nerd Tutorials guide
+
+3. **TinkerCAD Circuits** - Practice circuits online before building
+   - [https://www.tinkercad.com/circuits](https://www.tinkercad.com/circuits)
+   - Free, browser-based simulator
+   - Test your designs virtually first!
+
+4. **Fritzing** - Draw circuit diagrams
+   - Download: [https://fritzing.org/](https://fritzing.org/)
+   - Document your builds
+   - Share designs with others
+
+### Troubleshooting Resources
+
+**If something doesn't work:**
+
+1. **Search error messages exactly** in Google with "ESP32"
+2. **Check Arduino Forum** - likely someone had same problem
+3. **Stack Exchange** - Search before asking
+4. **Take clear photos** of your breadboard circuit
+5. **Measure voltages** with multimeter and report values
+6. **List what you tried** when asking for help
+
+**Good help request format:**
+```
+Title: ESP32 won't boot when powered by buck converter
+
+What I'm trying: Power ESP32 from LM2596 buck module
+What happens: Blue LED doesn't light up
+What I've tried:
+- Checked voltage: 5.1V at buck output ✓
+- ESP32 works fine on USB power ✓
+- Measured 0V at ESP32 VIN pin when connected ✗
+
+Photo: [attach clear photo showing connections]
+Schematic: [attach diagram if possible]
+```
+
+### Quick Reference Cards (Print These!)
+
+**ESP32 Pin Reference:**
+- [ESP32 Pinout PDF - Last Minute Engineers](https://lastminuteengineers.com/esp32-pinout-reference/)
+
+**Resistor Color Code Chart:**
+- [Google: "resistor color code chart printable"](https://www.google.com/search?q=resistor+color+code+chart+printable)
+
+**Multimeter Guide:**
+- [Google: "how to use multimeter guide"](https://www.google.com/search?q=how+to+use+multimeter+guide)
+
+---
+
+## 12. Project Success Checklist
+
+Use this checklist to track your progress:
+
+### Preparation Phase
+- [ ] Read Section 2.3 (Beginner-Friendly Design) completely
+- [ ] Watch "ESP32 Getting Started" tutorial
+- [ ] Watch "Multimeter basics" tutorial
+- [ ] Order all components from Section 7
+- [ ] Set up Arduino IDE with ESP32 support
+- [ ] Test ESP32 with Blink example (USB power)
+
+### Hardware Build Phase (Follow Section 2.3 build phases!)
+- [ ] Phase 0: Preparation complete (above items)
+- [ ] Phase 1: Power system working (5V from buck module)
+- [ ] Phase 2: ESP32 powered from buck module
+- [ ] Phase 3: First buzzer working with MOSFET
+- [ ] Phase 4: Second buzzer working
+- [ ] Phase 5: All 3 LEDs working
+- [ ] Phase 5: All 3 buttons working
+- [ ] Phase 6: Full hardware integration test (30 minutes runtime)
+
+### Software Phase (Week 3-4)
+- [ ] WiFiManager captive portal working
+- [ ] Telegram bot receiving messages
+- [ ] Basic alarm sequence (without buzzers) working
+- [ ] Add buzzer control to software
+- [ ] Test full alarm sequence
+- [ ] Add status reporting
+- [ ] Field test with non-technical user
+
+### Documentation & Completion
+- [ ] Take photos of final build
+- [ ] Document any changes made to design
+- [ ] Write user instructions specific to your build
+- [ ] Test full system for 1 week
+- [ ] Make V2 improvements list
+
+**Estimated completion time:** 4-6 weeks for first electronics project
+
+---
+
+**💡 Remember:**
+- **Take breaks** - debugging while tired causes more mistakes
+- **Document everything** - take photos at each step
+- **Test incrementally** - don't build everything at once
+- **Ask for help** - the community is friendly!
+- **Celebrate small wins** - each working component is progress
+- **Don't give up** - everyone struggles with their first project
+
+**Good luck with your build! 🚀**
